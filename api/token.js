@@ -1,4 +1,23 @@
 export default async function handler(req, res) {
+  res.setHeader(
+    "Access-Control-Allow-Origin",
+    "https://fivecare.infinityfreeapp.com"
+  );
+
+  res.setHeader(
+    "Access-Control-Allow-Methods",
+    "GET, OPTIONS"
+  );
+
+  res.setHeader(
+    "Access-Control-Allow-Headers",
+    "Content-Type"
+  );
+
+  if (req.method === "OPTIONS") {
+    return res.status(204).end();
+  }
+
   const clientId = process.env.SATUSEHAT_CLIENT_ID;
   const clientSecret = process.env.SATUSEHAT_CLIENT_SECRET;
 
@@ -40,18 +59,14 @@ export default async function handler(req, res) {
     if (!response.ok) {
       return res.status(response.status).json({
         status: "error",
-        http_code: response.status,
-        response: data
+        http_code: response.status
       });
     }
 
     return res.status(200).json({
       status: "success",
       http_code: response.status,
-      token_status: data.status ?? null,
-      token_type: data.token_type ?? null,
-      expires_in: data.expires_in ?? null,
-      token_length: data.access_token?.length ?? 0
+      token_status: data.status ?? null
     });
 
   } catch (error) {
