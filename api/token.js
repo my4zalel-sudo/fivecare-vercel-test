@@ -1434,6 +1434,211 @@ if (action === "create_condition") {
   });
 }
 
+    // ==================================================
+// CREATE PROCEDURE
+// ==================================================
+
+if (action === "create_procedure") {
+
+  if (req.method !== "POST") {
+    return res.status(405).json({
+      status: "error",
+      message: "create_procedure harus menggunakan POST",
+    });
+  }
+
+  const body = getJsonBody(req);
+
+  const patientId =
+    String(body.patient_id || "").trim();
+
+  const encounterId =
+    String(body.encounter_id || "").trim();
+
+  const conditionId =
+    String(body.condition_id || "").trim();
+
+  const organizationId =
+    String(
+      body.organization_id ||
+      process.env.SATUSEHAT_ORGANIZATION_ID ||
+      DEFAULT_ORGANIZATION_ID
+    ).trim();
+
+  const practitionerId =
+    String(
+      body.practitioner_id ||
+      process.env.SATUSEHAT_PRACTITIONER_ID ||
+      DEFAULT_PRACTITIONER_ID
+    ).trim();
+
+  const locationId =
+    String(
+      body.location_id ||
+      process.env.SATUSEHAT_LOCATION_ID ||
+      DEFAULT_LOCATION_ID
+    ).trim();
+
+  const procedureCode =
+    String(body.procedure_code || "87.44").trim();
+
+  const procedureDisplay =
+    String(
+      body.procedure_display ||
+      "Routine chest x-ray, so described"
+    ).trim();
+
+  if (!patientId || !encounterId) {
+    return res.status(400).json({
+      status: "error",
+      message: "patient_id dan encounter_id wajib diisi",
+    });
+  }
+
+  const procedureNumber =
+    String(
+      body.procedure_number ||
+      `FIVECARE-PROC-${Date.now()}`
+    );
+
+  const performedTime =
+    String(
+      body.performed_time ||
+      utcNow()
+    );
+
+  const { accessToken } =
+    await getToken();
+
+  const payload = {
+    resourceType: "Procedure",
+
+    identifier: [
+      {
+        use: "official",
+
+        system:
+          `http://sys-ids.kemkes.go.id/procedure/${organizationId}`,
+
+        value:
+          procedureNumber,
+      },
+    ],
+
+    status:
+      "completed",
+
+    code: {
+      coding: [
+        {
+          system:
+            "http://hl7.org/fhir/sid/icd-9-cm",
+
+          code:
+            procedureCode,
+
+          display:
+            procedureDisplay,
+        },
+      ],
+
+      text:
+        procedureDisplay,
+    },
+
+    subject: {
+      reference:
+        `Patient/${patientId}`,
+    },
+
+    encounter: {
+      reference:
+        `Encounter/${encounterId}`,
+    },
+
+    performedDateTime:
+      performedTime,
+
+    performer: [
+      {
+        actor: {
+          reference:
+            `Practitioner/${practitionerId}`,
+        },
+
+        onBehalfOf: {
+          reference:
+            `Organization/${organizationId}`,
+        },
+      },
+    ],
+
+    location: {
+      reference:
+        `Location/${locationId}`,
+    },
+  };
+
+  // Hubungkan tindakan dengan diagnosis bila condition_id ada
+  if (conditionId) {
+    payload.reasonReference = [
+      {
+        reference:
+          `Condition/${conditionId}`,
+      },
+    ];
+  }
+
+  const {
+    response,
+    data,
+  } = await fhirPost(
+    "Procedure",
+    accessToken,
+    payload
+  );
+
+  if (!response.ok) {
+    return res.status(response.status).json({
+      status: "error",
+
+      http_code:
+        response.status,
+
+      message:
+        "Gagal membuat Procedure di SATUSEHAT",
+
+      response:
+        data,
+    });
+  }
+
+  return res.status(201).json({
+    status: "success",
+
+    message:
+      "Procedure berhasil dibuat di SATUSEHAT",
+
+    patient_ihs:
+      patientId,
+
+    encounter_id:
+      encounterId,
+
+    condition_id:
+      conditionId || null,
+
+    procedure_id:
+      data?.id ?? null,
+
+    procedure_number:
+      procedureNumber,
+
+    procedure:
+      mapProcedure(data),
+  });
+}
+
     // Semua action berikut adalah GET
 
     if (
