@@ -1059,25 +1059,7 @@ export default async function handler(
         });
     }
 
-
-    // Semua action berikut adalah GET
-
-    if (
-      req.method !==
-      "GET"
-    ) {
-      return res
-        .status(405)
-        .json({
-          status:
-            "error",
-
-          message:
-            "Method tidak diizinkan",
-        });
-    }
-
-// ==================================================
+    // ==================================================
 // CREATE OBSERVATION
 // ==================================================
 
@@ -1272,7 +1254,25 @@ if (action === "create_observation") {
       mapObservation(data),
   });
 }
-    
+
+    // Semua action berikut adalah GET
+
+    if (
+      req.method !==
+      "GET"
+    ) {
+      return res
+        .status(405)
+        .json({
+          status:
+            "error",
+
+          message:
+            "Method tidak diizinkan",
+        });
+    }
+
+
     // ==================================================
     // TOKEN
     // ==================================================
