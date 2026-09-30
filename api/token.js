@@ -6,7 +6,7 @@ async function getToken() {
     throw new Error("Credential SATUSEHAT belum diatur di Vercel");
   }
 
-  const tokenUrl =
+  const url =
     "https://api-satusehat-stg.dto.kemkes.go.id/oauth2/v1/accesstoken?grant_type=client_credentials";
 
   const body = new URLSearchParams({
@@ -14,13 +14,37 @@ async function getToken() {
     client_secret: clientSecret,
   });
 
-  const response = await fetch(tokenUrl, {
+  const response = await fetch(url, {
     method: "POST",
     headers: {
       "Content-Type": "application/x-www-form-urlencoded",
       Accept: "application/json",
     },
     body: body.toString(),
+  });
+
+  const data = await response.json();
+
+  if (!response.ok || !data.access_token) {
+    throw new Error(`Gagal mendapatkan token. HTTP ${response.status}`);
+  }
+
+  return {
+    accessToken: data.access_token,
+    info: data,
+  };
+}
+
+async function fhirGet(path, accessToken) {
+  const url =
+    "https://api-satusehat-stg.dto.kemkes.go.id/fhir-r4/v1/" + path;
+
+  const response = await fetch(url, {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      Accept: "application/fhir+json",
+    },
   });
 
   const text = await response.text();
@@ -31,24 +55,17 @@ async function getToken() {
     data = JSON.parse(text);
   } catch {
     throw new Error(
-      `Respons token bukan JSON. HTTP ${response.status}: ${text.substring(0, 200)}`
-    );
-  }
-
-  if (!response.ok || !data.access_token) {
-    throw new Error(
-      `Gagal mendapatkan token SATUSEHAT. HTTP ${response.status}`
+      `Respons SATUSEHAT bukan JSON. HTTP ${response.status}`
     );
   }
 
   return {
-    accessToken: data.access_token,
-    tokenInfo: data,
+    response,
+    data,
   };
 }
 
 export default async function handler(req, res) {
-  // CORS
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
@@ -60,33 +77,34 @@ export default async function handler(req, res) {
   const action = String(req.query.action || "token").toLowerCase();
 
   try {
-    // =====================================================
-    // ACTION: TOKEN
-    // =====================================================
+
+    // ==========================================
+    // TOKEN
+    // ==========================================
     if (action === "token") {
-      const { accessToken, tokenInfo } = await getToken();
+      const { accessToken, info } = await getToken();
 
       return res.status(200).json({
         status: "success",
-        http_code: 200,
         message: "Koneksi SATUSEHAT berhasil",
-        token_status: tokenInfo.status ?? null,
-        token_type: tokenInfo.token_type ?? null,
-        expires_in: tokenInfo.expires_in ?? null,
+        http_code: 200,
+        token_status: info.status ?? null,
+        token_type: info.token_type ?? null,
+        expires_in: info.expires_in ?? null,
         token_length: accessToken.length,
       });
     }
 
-    // =====================================================
-    // ACTION: PATIENT
-    // =====================================================
+    // ==========================================
+    // PATIENT
+    // ==========================================
     if (action === "patient") {
       const nik = String(req.query.nik || "").trim();
 
       if (!/^\d{16}$/.test(nik)) {
         return res.status(400).json({
           status: "error",
-          message: "NIK harus terdiri dari 16 digit angka",
+          message: "NIK harus 16 digit",
         });
       }
 
@@ -95,59 +113,25 @@ export default async function handler(req, res) {
       const identifier =
         `https://fhir.kemkes.go.id/id/nik|${nik}`;
 
-      const patientUrl =
-        "https://api-satusehat-stg.dto.kemkes.go.id/fhir-r4/v1/Patient" +
-        "?identifier=" +
-        encodeURIComponent(identifier);
-
-      const response = await fetch(patientUrl, {
-        method: "GET",
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          Accept: "application/fhir+json",
-        },
-      });
-
-      const text = await response.text();
-
-      let data;
-
-      try {
-        data = JSON.parse(text);
-      } catch {
-        return res.status(502).json({
-          status: "error",
-          message: "Respons Patient dari SATUSEHAT bukan JSON",
-          http_code: response.status,
-          response_preview: text.substring(0, 200),
-        });
-      }
+      const { response, data } = await fhirGet(
+        "Patient?identifier=" + encodeURIComponent(identifier),
+        accessToken
+      );
 
       if (!response.ok) {
         return res.status(response.status).json({
           status: "error",
           http_code: response.status,
-          message: "Gagal mencari Patient di SATUSEHAT",
           response: data,
         });
       }
 
-      const entries = Array.isArray(data.entry) ? data.entry : [];
-
-      if (entries.length === 0) {
-        return res.status(404).json({
-          status: "not_found",
-          message: "Patient tidak ditemukan di SATUSEHAT",
-          nik,
-        });
-      }
-
-      const patient = entries[0]?.resource;
+      const patient = data.entry?.[0]?.resource;
 
       if (!patient) {
         return res.status(404).json({
           status: "not_found",
-          message: "Resource Patient tidak ditemukan",
+          message: "Patient tidak ditemukan di SATUSEHAT",
           nik,
         });
       }
@@ -157,12 +141,10 @@ export default async function handler(req, res) {
       if (patient.name?.[0]?.text) {
         nama = patient.name[0].text;
       } else if (patient.name?.[0]) {
-        const name = patient.name[0];
-
         nama = [
-          ...(name.prefix || []),
-          ...(name.given || []),
-          name.family || "",
+          ...(patient.name[0].prefix || []),
+          ...(patient.name[0].given || []),
+          patient.name[0].family || "",
         ]
           .filter(Boolean)
           .join(" ");
@@ -173,7 +155,7 @@ export default async function handler(req, res) {
         message: "Patient ditemukan di SATUSEHAT",
         patient: {
           ihs: patient.id ?? null,
-          nik: nik,
+          nik,
           name: nama,
           gender: patient.gender ?? null,
           birthDate: patient.birthDate ?? null,
@@ -182,15 +164,97 @@ export default async function handler(req, res) {
       });
     }
 
-    // =====================================================
-    // ACTION TIDAK DIKENAL
-    // =====================================================
+    // ==========================================
+    // ENCOUNTER
+    // ==========================================
+    if (action === "encounter") {
+      const patientId =
+        String(req.query.patient_id || "").trim();
+
+      if (!patientId) {
+        return res.status(400).json({
+          status: "error",
+          message: "patient_id wajib diisi",
+        });
+      }
+
+      const { accessToken } = await getToken();
+
+      const { response, data } = await fhirGet(
+        "Encounter?subject=" + encodeURIComponent(patientId),
+        accessToken
+      );
+
+      if (!response.ok) {
+        return res.status(response.status).json({
+          status: "error",
+          http_code: response.status,
+          message: "Gagal mengambil Encounter",
+          response: data,
+        });
+      }
+
+      const entries = Array.isArray(data.entry)
+        ? data.entry
+        : [];
+
+      if (entries.length === 0) {
+        return res.status(200).json({
+          status: "not_found",
+          message: "Belum ada Encounter untuk Patient ini",
+          patient_ihs: patientId,
+          total: 0,
+          encounters: [],
+        });
+      }
+
+      const encounters = entries.map((entry) => {
+        const e = entry.resource || {};
+
+        return {
+          id: e.id ?? null,
+          status: e.status ?? null,
+
+          class_code:
+            e.class?.code ?? null,
+
+          class_display:
+            e.class?.display ?? null,
+
+          period_start:
+            e.period?.start ?? null,
+
+          period_end:
+            e.period?.end ?? null,
+
+          service_provider:
+            e.serviceProvider?.display ??
+            e.serviceProvider?.reference ??
+            null,
+
+          location:
+            e.location?.[0]?.location?.display ??
+            e.location?.[0]?.location?.reference ??
+            null,
+        };
+      });
+
+      return res.status(200).json({
+        status: "success",
+        message: "Encounter berhasil ditemukan",
+        patient_ihs: patientId,
+        total: encounters.length,
+        encounters,
+      });
+    }
+
     return res.status(400).json({
       status: "error",
       message: `Action '${action}' tidak dikenal`,
       available_actions: [
         "token",
         "patient",
+        "encounter",
       ],
     });
 
