@@ -1255,6 +1255,185 @@ if (action === "create_observation") {
   });
 }
 
+    // ==================================================
+// CREATE CONDITION
+// ==================================================
+
+if (action === "create_condition") {
+
+  if (req.method !== "POST") {
+    return res.status(405).json({
+      status: "error",
+      message: "create_condition harus menggunakan POST",
+    });
+  }
+
+  const body = getJsonBody(req);
+
+  const patientId =
+    String(body.patient_id || "").trim();
+
+  const encounterId =
+    String(body.encounter_id || "").trim();
+
+  const organizationId =
+    String(
+      body.organization_id ||
+      process.env.SATUSEHAT_ORGANIZATION_ID ||
+      DEFAULT_ORGANIZATION_ID
+    ).trim();
+
+  const icdCode =
+    String(body.icd_code || "J06.9").trim();
+
+  const icdDisplay =
+    String(
+      body.icd_display ||
+      "Acute upper respiratory infection, unspecified"
+    ).trim();
+
+  if (!patientId || !encounterId) {
+    return res.status(400).json({
+      status: "error",
+      message: "patient_id dan encounter_id wajib diisi",
+    });
+  }
+
+  const conditionNumber =
+    String(
+      body.condition_number ||
+      `FIVECARE-COND-${Date.now()}`
+    );
+
+  const { accessToken } =
+    await getToken();
+
+  const payload = {
+    resourceType: "Condition",
+
+    identifier: [
+      {
+        use: "official",
+
+        system:
+          `http://sys-ids.kemkes.go.id/condition/${organizationId}`,
+
+        value:
+          conditionNumber,
+      },
+    ],
+
+    clinicalStatus: {
+      coding: [
+        {
+          system:
+            "http://terminology.hl7.org/CodeSystem/condition-clinical",
+
+          code:
+            "active",
+
+          display:
+            "Active",
+        },
+      ],
+    },
+
+    category: [
+      {
+        coding: [
+          {
+            system:
+              "http://terminology.hl7.org/CodeSystem/condition-category",
+
+            code:
+              "encounter-diagnosis",
+
+            display:
+              "Encounter Diagnosis",
+          },
+        ],
+      },
+    ],
+
+    code: {
+      coding: [
+        {
+          system:
+            "http://hl7.org/fhir/sid/icd-10",
+
+          code:
+            icdCode,
+
+          display:
+            icdDisplay,
+        },
+      ],
+
+      text:
+        icdDisplay,
+    },
+
+    subject: {
+      reference:
+        `Patient/${patientId}`,
+    },
+
+    encounter: {
+      reference:
+        `Encounter/${encounterId}`,
+    },
+
+    recordedDate:
+      utcNow(),
+  };
+
+  const {
+    response,
+    data,
+  } = await fhirPost(
+    "Condition",
+    accessToken,
+    payload
+  );
+
+  if (!response.ok) {
+    return res.status(response.status).json({
+      status: "error",
+
+      http_code:
+        response.status,
+
+      message:
+        "Gagal membuat Condition di SATUSEHAT",
+
+      response:
+        data,
+    });
+  }
+
+  return res.status(201).json({
+    status: "success",
+
+    message:
+      "Condition berhasil dibuat di SATUSEHAT",
+
+    patient_ihs:
+      patientId,
+
+    encounter_id:
+      encounterId,
+
+    condition_id:
+      data?.id ?? null,
+
+    condition_number:
+      conditionNumber,
+
+    condition:
+      mapCondition(data),
+  });
+}
+
     // Semua action berikut adalah GET
 
     if (
