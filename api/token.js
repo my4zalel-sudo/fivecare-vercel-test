@@ -1,18 +1,7 @@
 export default async function handler(req, res) {
-  res.setHeader(
-    "Access-Control-Allow-Origin",
-    "https://fivecare.infinityfreeapp.com"
-  );
-
-  res.setHeader(
-    "Access-Control-Allow-Methods",
-    "GET, OPTIONS"
-  );
-
-  res.setHeader(
-    "Access-Control-Allow-Headers",
-    "Content-Type"
-  );
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
 
   if (req.method === "OPTIONS") {
     return res.status(204).end();
@@ -28,7 +17,7 @@ export default async function handler(req, res) {
     });
   }
 
-  const url =
+  const tokenUrl =
     "https://api-satusehat-stg.dto.kemkes.go.id/oauth2/v1/accesstoken?grant_type=client_credentials";
 
   const body = new URLSearchParams({
@@ -37,7 +26,7 @@ export default async function handler(req, res) {
   });
 
   try {
-    const response = await fetch(url, {
+    const response = await fetch(tokenUrl, {
       method: "POST",
       headers: {
         "Content-Type": "application/x-www-form-urlencoded",
@@ -46,15 +35,7 @@ export default async function handler(req, res) {
       body: body.toString()
     });
 
-    const text = await response.text();
-
-    let data;
-
-    try {
-      data = JSON.parse(text);
-    } catch {
-      data = { raw_response: text };
-    }
+    const data = await response.json();
 
     if (!response.ok) {
       return res.status(response.status).json({
@@ -65,7 +46,7 @@ export default async function handler(req, res) {
 
     return res.status(200).json({
       status: "success",
-      http_code: response.status,
+      http_code: 200,
       token_status: data.status ?? null
     });
 
