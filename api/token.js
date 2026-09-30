@@ -1077,7 +1077,202 @@ export default async function handler(
         });
     }
 
+// ==================================================
+// CREATE OBSERVATION
+// ==================================================
 
+if (action === "create_observation") {
+
+  if (req.method !== "POST") {
+    return res.status(405).json({
+      status: "error",
+      message: "create_observation harus menggunakan POST",
+    });
+  }
+
+  const body = getJsonBody(req);
+
+  const patientId =
+    String(body.patient_id || "").trim();
+
+  const encounterId =
+    String(body.encounter_id || "").trim();
+
+  const practitionerId =
+    String(
+      body.practitioner_id ||
+      process.env.SATUSEHAT_PRACTITIONER_ID ||
+      DEFAULT_PRACTITIONER_ID
+    ).trim();
+
+  const organizationId =
+    String(
+      body.organization_id ||
+      process.env.SATUSEHAT_ORGANIZATION_ID ||
+      DEFAULT_ORGANIZATION_ID
+    ).trim();
+
+  const value =
+    Number(body.value ?? 80);
+
+  if (!patientId || !encounterId) {
+    return res.status(400).json({
+      status: "error",
+      message: "patient_id dan encounter_id wajib diisi",
+    });
+  }
+
+  if (!Number.isFinite(value)) {
+    return res.status(400).json({
+      status: "error",
+      message: "value harus berupa angka",
+    });
+  }
+
+  const observationNumber =
+    String(
+      body.observation_number ||
+      `FIVECARE-OBS-${Date.now()}`
+    );
+
+  const observationTime =
+    String(
+      body.observation_time ||
+      utcNow()
+    );
+
+  const { accessToken } =
+    await getToken();
+
+  const payload = {
+    resourceType: "Observation",
+
+    identifier: [
+      {
+        use: "official",
+
+        system:
+          `http://sys-ids.kemkes.go.id/observation/${organizationId}`,
+
+        value:
+          observationNumber,
+      },
+    ],
+
+    status: "final",
+
+    category: [
+      {
+        coding: [
+          {
+            system:
+              "http://terminology.hl7.org/CodeSystem/observation-category",
+
+            code:
+              "vital-signs",
+
+            display:
+              "Vital Signs",
+          },
+        ],
+      },
+    ],
+
+    code: {
+      coding: [
+        {
+          system:
+            "http://loinc.org",
+
+          code:
+            "8867-4",
+
+          display:
+            "Heart rate",
+        },
+      ],
+    },
+
+    subject: {
+      reference:
+        `Patient/${patientId}`,
+    },
+
+    encounter: {
+      reference:
+        `Encounter/${encounterId}`,
+    },
+
+    effectiveDateTime:
+      observationTime,
+
+    issued:
+      observationTime,
+
+    performer: [
+      {
+        reference:
+          `Practitioner/${practitionerId}`,
+      },
+    ],
+
+    valueQuantity: {
+      value,
+      unit:
+        "beats/minute",
+
+      system:
+        "http://unitsofmeasure.org",
+
+      code:
+        "/min",
+    },
+  };
+
+  const {
+    response,
+    data,
+  } = await fhirPost(
+    "Observation",
+    accessToken,
+    payload
+  );
+
+  if (!response.ok) {
+    return res.status(response.status).json({
+      status: "error",
+      http_code: response.status,
+
+      message:
+        "Gagal membuat Observation di SATUSEHAT",
+
+      response: data,
+    });
+  }
+
+  return res.status(201).json({
+    status: "success",
+
+    message:
+      "Observation berhasil dibuat di SATUSEHAT",
+
+    patient_ihs:
+      patientId,
+
+    encounter_id:
+      encounterId,
+
+    observation_id:
+      data?.id ?? null,
+
+    observation_number:
+      observationNumber,
+
+    observation:
+      mapObservation(data),
+  });
+}
+    
     // ==================================================
     // TOKEN
     // ==================================================
@@ -1974,201 +2169,6 @@ export default async function handler(
         });
     }
 
-    // ==================================================
-// CREATE OBSERVATION
-// ==================================================
-
-if (action === "create_observation") {
-
-  if (req.method !== "POST") {
-    return res.status(405).json({
-      status: "error",
-      message: "create_observation harus menggunakan POST",
-    });
-  }
-
-  const body = getJsonBody(req);
-
-  const patientId =
-    String(body.patient_id || "").trim();
-
-  const encounterId =
-    String(body.encounter_id || "").trim();
-
-  const practitionerId =
-    String(
-      body.practitioner_id ||
-      process.env.SATUSEHAT_PRACTITIONER_ID ||
-      DEFAULT_PRACTITIONER_ID
-    ).trim();
-
-  const organizationId =
-    String(
-      body.organization_id ||
-      process.env.SATUSEHAT_ORGANIZATION_ID ||
-      DEFAULT_ORGANIZATION_ID
-    ).trim();
-
-  const value =
-    Number(body.value ?? 80);
-
-  if (!patientId || !encounterId) {
-    return res.status(400).json({
-      status: "error",
-      message: "patient_id dan encounter_id wajib diisi",
-    });
-  }
-
-  if (!Number.isFinite(value)) {
-    return res.status(400).json({
-      status: "error",
-      message: "value harus berupa angka",
-    });
-  }
-
-  const observationNumber =
-    String(
-      body.observation_number ||
-      `FIVECARE-OBS-${Date.now()}`
-    );
-
-  const observationTime =
-    String(
-      body.observation_time ||
-      utcNow()
-    );
-
-  const { accessToken } =
-    await getToken();
-
-  const payload = {
-    resourceType: "Observation",
-
-    identifier: [
-      {
-        use: "official",
-
-        system:
-          `http://sys-ids.kemkes.go.id/observation/${organizationId}`,
-
-        value:
-          observationNumber,
-      },
-    ],
-
-    status: "final",
-
-    category: [
-      {
-        coding: [
-          {
-            system:
-              "http://terminology.hl7.org/CodeSystem/observation-category",
-
-            code:
-              "vital-signs",
-
-            display:
-              "Vital Signs",
-          },
-        ],
-      },
-    ],
-
-    code: {
-      coding: [
-        {
-          system:
-            "http://loinc.org",
-
-          code:
-            "8867-4",
-
-          display:
-            "Heart rate",
-        },
-      ],
-    },
-
-    subject: {
-      reference:
-        `Patient/${patientId}`,
-    },
-
-    encounter: {
-      reference:
-        `Encounter/${encounterId}`,
-    },
-
-    effectiveDateTime:
-      observationTime,
-
-    issued:
-      observationTime,
-
-    performer: [
-      {
-        reference:
-          `Practitioner/${practitionerId}`,
-      },
-    ],
-
-    valueQuantity: {
-      value,
-      unit:
-        "beats/minute",
-
-      system:
-        "http://unitsofmeasure.org",
-
-      code:
-        "/min",
-    },
-  };
-
-  const {
-    response,
-    data,
-  } = await fhirPost(
-    "Observation",
-    accessToken,
-    payload
-  );
-
-  if (!response.ok) {
-    return res.status(response.status).json({
-      status: "error",
-      http_code: response.status,
-
-      message:
-        "Gagal membuat Observation di SATUSEHAT",
-
-      response: data,
-    });
-  }
-
-  return res.status(201).json({
-    status: "success",
-
-    message:
-      "Observation berhasil dibuat di SATUSEHAT",
-
-    patient_ihs:
-      patientId,
-
-    encounter_id:
-      encounterId,
-
-    observation_id:
-      data?.id ?? null,
-
-    observation_number:
-      observationNumber,
-
-    observation:
-      mapObservation(data),
-  });
-}
 
     // ==================================================
     // ACTION TIDAK DIKENAL
@@ -2193,7 +2193,6 @@ if (action === "create_observation") {
           "procedure",
           "visit",
           "create_encounter",
-          "create_observation",
         ],
       });
 
