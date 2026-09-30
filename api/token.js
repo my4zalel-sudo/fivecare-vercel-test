@@ -2578,6 +2578,8 @@ if (action === "create_procedure") {
           "visit",
           "create_encounter",
           "create_observation",
+          "create_condition",
+          "create_procedure",
         ],
       });
 
