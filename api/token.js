@@ -4,93 +4,164 @@ const SATUSEHAT_BASE =
 const SATUSEHAT_TOKEN_URL =
   "https://api-satusehat-stg.dto.kemkes.go.id/oauth2/v1/accesstoken?grant_type=client_credentials";
 
+// ID sandbox yang sudah terbukti ada pada Encounter kamu.
+// Nanti bisa dipindahkan ke Environment Variables.
+const DEFAULT_ORGANIZATION_ID =
+  "06ff9913-88d6-4480-82da-d6631a80448e";
+
+const DEFAULT_PRACTITIONER_ID =
+  "10018452434";
+
+const DEFAULT_LOCATION_ID =
+  "1e997571-dd1f-4afe-8a00-90b903270ae6";
+
 
 // ======================================================
 // TOKEN
 // ======================================================
 
 async function getToken() {
-  const clientId = process.env.SATUSEHAT_CLIENT_ID;
-  const clientSecret = process.env.SATUSEHAT_CLIENT_SECRET;
+  const clientId =
+    process.env.SATUSEHAT_CLIENT_ID;
+
+  const clientSecret =
+    process.env.SATUSEHAT_CLIENT_SECRET;
 
   if (!clientId || !clientSecret) {
     throw new Error(
-      "SATUSEHAT_CLIENT_ID / SATUSEHAT_CLIENT_SECRET belum diatur di Vercel"
+      "Credential SATUSEHAT belum diatur di Vercel"
     );
   }
 
-  const body = new URLSearchParams({
-    client_id: clientId,
-    client_secret: clientSecret,
-  });
+  const body =
+    new URLSearchParams({
+      client_id: clientId,
+      client_secret: clientSecret,
+    });
 
-  const response = await fetch(SATUSEHAT_TOKEN_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/x-www-form-urlencoded",
-      Accept: "application/json",
-    },
-    body: body.toString(),
-  });
+  const response =
+    await fetch(
+      SATUSEHAT_TOKEN_URL,
+      {
+        method: "POST",
 
-  const text = await response.text();
+        headers: {
+          "Content-Type":
+            "application/x-www-form-urlencoded",
+
+          Accept:
+            "application/json",
+        },
+
+        body:
+          body.toString(),
+      }
+    );
+
+  const text =
+    await response.text();
 
   let data;
 
   try {
-    data = JSON.parse(text);
+    data =
+      JSON.parse(text);
   } catch {
     throw new Error(
-      `Respons token bukan JSON. HTTP ${response.status}: ${text.substring(
-        0,
-        200
-      )}`
+      `Respons token bukan JSON. HTTP ${response.status}`
     );
   }
 
-  if (!response.ok || !data.access_token) {
+  if (
+    !response.ok ||
+    !data.access_token
+  ) {
     throw new Error(
       `Gagal mendapatkan token SATUSEHAT. HTTP ${response.status}`
     );
   }
 
   return {
-    accessToken: data.access_token,
-    tokenInfo: data,
+    accessToken:
+      data.access_token,
+
+    tokenInfo:
+      data,
   };
 }
 
 
 // ======================================================
-// FHIR GET
+// FHIR REQUEST
 // ======================================================
 
-async function fhirGet(path, accessToken) {
-  const url = path.startsWith("http")
-    ? path
-    : `${SATUSEHAT_BASE}/${path}`;
+async function fhirRequest(
+  path,
+  accessToken,
+  options = {}
+) {
+  const method =
+    options.method || "GET";
 
-  const response = await fetch(url, {
-    method: "GET",
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      Accept: "application/fhir+json",
-    },
-  });
+  const url =
+    path.startsWith("http")
+      ? path
+      : `${SATUSEHAT_BASE}/${path}`;
 
-  const text = await response.text();
+  const headers = {
+    Authorization:
+      `Bearer ${accessToken}`,
 
-  let data;
+    Accept:
+      "application/fhir+json",
+  };
 
-  try {
-    data = JSON.parse(text);
-  } catch {
-    throw new Error(
-      `Respons FHIR bukan JSON. HTTP ${response.status}: ${text.substring(
-        0,
-        200
-      )}`
+  if (
+    method !== "GET" &&
+    method !== "HEAD"
+  ) {
+    headers["Content-Type"] =
+      "application/json";
+  }
+
+  const fetchOptions = {
+    method,
+    headers,
+  };
+
+  if (
+    options.body !== undefined
+  ) {
+    fetchOptions.body =
+      JSON.stringify(
+        options.body
+      );
+  }
+
+  const response =
+    await fetch(
+      url,
+      fetchOptions
     );
+
+  const text =
+    await response.text();
+
+  let data = null;
+
+  if (text) {
+    try {
+      data =
+        JSON.parse(text);
+    } catch {
+      data = {
+        raw:
+          text.substring(
+            0,
+            1000
+          ),
+      };
+    }
   }
 
   return {
@@ -100,28 +171,72 @@ async function fhirGet(path, accessToken) {
 }
 
 
+async function fhirGet(
+  path,
+  accessToken
+) {
+  return fhirRequest(
+    path,
+    accessToken,
+    {
+      method: "GET",
+    }
+  );
+}
+
+
+async function fhirPost(
+  path,
+  accessToken,
+  body
+) {
+  return fhirRequest(
+    path,
+    accessToken,
+    {
+      method: "POST",
+      body,
+    }
+  );
+}
+
+
 // ======================================================
 // HELPER
 // ======================================================
 
-function bundleEntries(data) {
-  return Array.isArray(data?.entry)
+function bundleEntries(
+  data
+) {
+  return Array.isArray(
+    data?.entry
+  )
     ? data.entry
     : [];
 }
 
 
-function firstCoding(codeableConcept) {
-  return codeableConcept?.coding?.[0] || {};
+function firstCoding(
+  concept
+) {
+  return (
+    concept?.coding?.[0] ||
+    {}
+  );
 }
 
 
-function getPatientName(patient) {
-  if (patient?.name?.[0]?.text) {
+function getPatientName(
+  patient
+) {
+  if (
+    patient?.name?.[0]?.text
+  ) {
     return patient.name[0].text;
   }
 
-  const name = patient?.name?.[0];
+  const name =
+    patient?.name?.[0];
 
   if (!name) {
     return null;
@@ -137,74 +252,150 @@ function getPatientName(patient) {
 }
 
 
+function getJsonBody(req) {
+  if (!req.body) {
+    return {};
+  }
+
+  if (
+    typeof req.body ===
+    "object"
+  ) {
+    return req.body;
+  }
+
+  if (
+    typeof req.body ===
+    "string"
+  ) {
+    try {
+      return JSON.parse(
+        req.body
+      );
+    } catch {
+      return {};
+    }
+  }
+
+  return {};
+}
+
+
+function utcNow() {
+  return new Date()
+    .toISOString()
+    .replace(
+      "Z",
+      "+00:00"
+    );
+}
+
+
 // ======================================================
 // MAP ENCOUNTER
 // ======================================================
 
-function mapEncounter(resource) {
-  const encounter = resource || {};
+function mapEncounter(
+  resource
+) {
+  const e =
+    resource || {};
 
   return {
-    id: encounter.id ?? null,
+    id:
+      e.id ?? null,
+
+    identifier:
+      e.identifier?.[0]
+        ?.value ??
+      null,
 
     status:
-      encounter.status ?? null,
+      e.status ?? null,
 
     class_code:
-      encounter.class?.code ?? null,
+      e.class?.code ??
+      null,
 
     class_display:
-      encounter.class?.display ?? null,
+      e.class?.display ??
+      null,
 
     period_start:
-      encounter.period?.start ?? null,
+      e.period?.start ??
+      null,
 
     period_end:
-      encounter.period?.end ?? null,
+      e.period?.end ??
+      null,
 
     subject:
-      encounter.subject?.reference ?? null,
+      e.subject?.reference ??
+      null,
 
     service_provider:
-      encounter.serviceProvider?.display ??
-      encounter.serviceProvider?.reference ??
+      e.serviceProvider
+        ?.display ??
+      e.serviceProvider
+        ?.reference ??
       null,
 
     location:
-      encounter.location?.[0]?.location?.display ??
-      encounter.location?.[0]?.location?.reference ??
+      e.location?.[0]
+        ?.location
+        ?.display ??
+      e.location?.[0]
+        ?.location
+        ?.reference ??
       null,
 
     participant:
-      Array.isArray(encounter.participant)
-        ? encounter.participant.map((p) => ({
-            practitioner:
-              p.individual?.display ??
-              p.individual?.reference ??
-              null,
+      Array.isArray(
+        e.participant
+      )
+        ? e.participant.map(
+            p => ({
+              practitioner:
+                p.individual
+                  ?.display ??
+                p.individual
+                  ?.reference ??
+                null,
 
-            period_start:
-              p.period?.start ?? null,
+              period_start:
+                p.period
+                  ?.start ??
+                null,
 
-            period_end:
-              p.period?.end ?? null,
-          }))
+              period_end:
+                p.period
+                  ?.end ??
+                null,
+            })
+          )
         : [],
 
     diagnosis:
-      Array.isArray(encounter.diagnosis)
-        ? encounter.diagnosis.map((d) => ({
-            condition:
-              d.condition?.reference ??
-              null,
+      Array.isArray(
+        e.diagnosis
+      )
+        ? e.diagnosis.map(
+            d => ({
+              condition:
+                d.condition
+                  ?.reference ??
+                null,
 
-            display:
-              d.condition?.display ??
-              null,
+              display:
+                d.condition
+                  ?.display ??
+                null,
 
-            rank:
-              d.rank ?? null,
-          }))
+              rank:
+                d.rank ??
+                null,
+            })
+          )
         : [],
   };
 }
@@ -214,80 +405,94 @@ function mapEncounter(resource) {
 // MAP OBSERVATION
 // ======================================================
 
-function mapObservation(resource) {
-  const observation = resource || {};
+function mapObservation(
+  resource
+) {
+  const o =
+    resource || {};
 
   const coding =
-    firstCoding(observation.code);
+    firstCoding(
+      o.code
+    );
 
   let value = null;
   let unit = null;
 
-  if (observation.valueQuantity) {
+  if (
+    o.valueQuantity
+  ) {
     value =
-      observation.valueQuantity.value ??
+      o.valueQuantity.value ??
       null;
 
     unit =
-      observation.valueQuantity.unit ??
-      observation.valueQuantity.code ??
+      o.valueQuantity.unit ??
+      o.valueQuantity.code ??
       null;
   }
 
   else if (
-    observation.valueString !== undefined
+    o.valueString !==
+    undefined
   ) {
     value =
-      observation.valueString;
+      o.valueString;
   }
 
   else if (
-    observation.valueInteger !== undefined
+    o.valueInteger !==
+    undefined
   ) {
     value =
-      observation.valueInteger;
+      o.valueInteger;
   }
 
   else if (
-    observation.valueBoolean !== undefined
+    o.valueBoolean !==
+    undefined
   ) {
     value =
-      observation.valueBoolean;
+      o.valueBoolean;
   }
 
   else if (
-    observation.valueCodeableConcept
+    o.valueCodeableConcept
   ) {
-    const valueCoding =
+    const c =
       firstCoding(
-        observation.valueCodeableConcept
+        o.valueCodeableConcept
       );
 
     value =
-      observation
-        .valueCodeableConcept
+      o.valueCodeableConcept
         .text ??
-      valueCoding.display ??
-      valueCoding.code ??
+      c.display ??
+      c.code ??
       null;
   }
 
-
   const components =
-    Array.isArray(observation.component)
-      ? observation.component.map(
-          (component) => {
+    Array.isArray(
+      o.component
+    )
+      ? o.component.map(
+          component => {
 
-            const componentCoding =
+            const c =
               firstCoding(
                 component.code
               );
 
-            let componentValue = null;
-            let componentUnit = null;
+            let componentValue =
+              null;
+
+            let componentUnit =
+              null;
 
             if (
-              component.valueQuantity
+              component
+                .valueQuantity
             ) {
               componentValue =
                 component
@@ -306,29 +511,34 @@ function mapObservation(resource) {
             }
 
             else if (
-              component.valueString !==
+              component
+                .valueString !==
               undefined
             ) {
               componentValue =
-                component.valueString;
+                component
+                  .valueString;
             }
 
             else if (
-              component.valueInteger !==
+              component
+                .valueInteger !==
               undefined
             ) {
               componentValue =
-                component.valueInteger;
+                component
+                  .valueInteger;
             }
 
             return {
               code:
-                componentCoding.code ??
+                c.code ??
                 null,
 
               display:
-                componentCoding.display ??
-                component.code?.text ??
+                c.display ??
+                component.code
+                  ?.text ??
                 null,
 
               value:
@@ -341,20 +551,20 @@ function mapObservation(resource) {
         )
       : [];
 
-
   return {
     id:
-      observation.id ?? null,
+      o.id ?? null,
 
     status:
-      observation.status ?? null,
+      o.status ?? null,
 
     code:
-      coding.code ?? null,
+      coding.code ??
+      null,
 
     display:
       coding.display ??
-      observation.code?.text ??
+      o.code?.text ??
       null,
 
     value,
@@ -362,20 +572,19 @@ function mapObservation(resource) {
     unit,
 
     effective:
-      observation.effectiveDateTime ??
-      observation.effectiveInstant ??
-      observation.effectivePeriod?.start ??
+      o.effectiveDateTime ??
+      o.effectiveInstant ??
       null,
 
     issued:
-      observation.issued ?? null,
+      o.issued ?? null,
 
     performer:
       Array.isArray(
-        observation.performer
+        o.performer
       )
-        ? observation.performer.map(
-            (p) =>
+        ? o.performer.map(
+            p =>
               p.display ??
               p.reference ??
               null
@@ -391,71 +600,81 @@ function mapObservation(resource) {
 // MAP CONDITION
 // ======================================================
 
-function mapCondition(resource) {
-  const condition = resource || {};
+function mapCondition(
+  resource
+) {
+  const c =
+    resource || {};
 
   const coding =
-    firstCoding(condition.code);
-
-  const clinicalCoding =
     firstCoding(
-      condition.clinicalStatus
+      c.code
     );
 
-  const verificationCoding =
+  const clinical =
     firstCoding(
-      condition.verificationStatus
+      c.clinicalStatus
     );
 
-  const categoryCoding =
+  const verification =
     firstCoding(
-      condition.category?.[0]
+      c.verificationStatus
+    );
+
+  const category =
+    firstCoding(
+      c.category?.[0]
     );
 
   return {
     id:
-      condition.id ?? null,
+      c.id ?? null,
 
     code:
-      coding.code ?? null,
+      coding.code ??
+      null,
 
     display:
       coding.display ??
-      condition.code?.text ??
+      c.code?.text ??
       null,
 
     system:
-      coding.system ?? null,
+      coding.system ??
+      null,
 
     clinical_status:
-      clinicalCoding.code ?? null,
+      clinical.code ??
+      null,
 
     verification_status:
-      verificationCoding.code ??
+      verification.code ??
       null,
 
     category:
-      categoryCoding.code ?? null,
+      category.code ??
+      null,
 
     category_display:
-      categoryCoding.display ??
-      condition.category?.[0]?.text ??
+      category.display ??
+      c.category?.[0]
+        ?.text ??
       null,
 
     onset:
-      condition.onsetDateTime ??
-      condition.onsetPeriod?.start ??
+      c.onsetDateTime ??
       null,
 
     recorded_date:
-      condition.recordedDate ?? null,
+      c.recordedDate ??
+      null,
 
     subject:
-      condition.subject?.reference ??
+      c.subject?.reference ??
       null,
 
     encounter:
-      condition.encounter?.reference ??
+      c.encounter?.reference ??
       null,
   };
 }
@@ -465,115 +684,61 @@ function mapCondition(resource) {
 // MAP PROCEDURE
 // ======================================================
 
-function mapProcedure(resource) {
-  const procedure = resource || {};
+function mapProcedure(
+  resource
+) {
+  const p =
+    resource || {};
 
   const coding =
-    firstCoding(procedure.code);
-
-  let performedStart = null;
-  let performedEnd = null;
-
-  if (procedure.performedDateTime) {
-    performedStart =
-      procedure.performedDateTime;
-  }
-
-  else if (procedure.performedPeriod) {
-    performedStart =
-      procedure.performedPeriod.start ??
-      null;
-
-    performedEnd =
-      procedure.performedPeriod.end ??
-      null;
-  }
-
-  else if (procedure.performedString) {
-    performedStart =
-      procedure.performedString;
-  }
-
+    firstCoding(
+      p.code
+    );
 
   return {
     id:
-      procedure.id ?? null,
+      p.id ?? null,
 
     status:
-      procedure.status ?? null,
+      p.status ?? null,
 
     code:
-      coding.code ?? null,
+      coding.code ??
+      null,
 
     display:
       coding.display ??
-      procedure.code?.text ??
+      p.code?.text ??
       null,
 
     system:
-      coding.system ?? null,
+      coding.system ??
+      null,
 
     subject:
-      procedure.subject?.reference ??
+      p.subject?.reference ??
       null,
 
     encounter:
-      procedure.encounter?.reference ??
+      p.encounter?.reference ??
       null,
 
     performed_start:
-      performedStart,
+      p.performedDateTime ??
+      p.performedPeriod
+        ?.start ??
+      null,
 
     performed_end:
-      performedEnd,
-
-    performer:
-      Array.isArray(procedure.performer)
-        ? procedure.performer.map(
-            (p) => ({
-              actor:
-                p.actor?.display ??
-                p.actor?.reference ??
-                null,
-
-              function:
-                firstCoding(
-                  p.function
-                ).display ??
-                p.function?.text ??
-                null,
-            })
-          )
-        : [],
-
-    reason:
-      Array.isArray(
-        procedure.reasonCode
-      )
-        ? procedure.reasonCode.map(
-            (reason) => {
-
-              const rc =
-                firstCoding(reason);
-
-              return {
-                code:
-                  rc.code ?? null,
-
-                display:
-                  rc.display ??
-                  reason.text ??
-                  null,
-              };
-            }
-          )
-        : [],
+      p.performedPeriod
+        ?.end ??
+      null,
   };
 }
 
 
 // ======================================================
-// MAIN
+// MAIN HANDLER
 // ======================================================
 
 export default async function handler(
@@ -588,7 +753,7 @@ export default async function handler(
 
   res.setHeader(
     "Access-Control-Allow-Methods",
-    "GET, OPTIONS"
+    "GET, POST, OPTIONS"
   );
 
   res.setHeader(
@@ -601,65 +766,356 @@ export default async function handler(
     "no-store"
   );
 
-
-  if (req.method === "OPTIONS") {
+  if (
+    req.method ===
+    "OPTIONS"
+  ) {
     return res
       .status(204)
       .end();
   }
 
-
-  if (req.method !== "GET") {
-    return res.status(405).json({
-      status: "error",
-      message:
-        "Method tidak diizinkan",
-    });
-  }
-
-
   const action =
     String(
-      req.query.action || "token"
+      req.query.action ||
+      "token"
     )
       .trim()
       .toLowerCase();
 
-
   try {
+
+    // ==================================================
+    // CREATE ENCOUNTER
+    // ==================================================
+
+    if (
+      action ===
+      "create_encounter"
+    ) {
+
+      if (
+        req.method !==
+        "POST"
+      ) {
+        return res
+          .status(405)
+          .json({
+            status: "error",
+
+            message:
+              "create_encounter harus menggunakan POST",
+          });
+      }
+
+      const body =
+        getJsonBody(req);
+
+      const patientId =
+        String(
+          body.patient_id ||
+          ""
+        ).trim();
+
+      if (!patientId) {
+        return res
+          .status(400)
+          .json({
+            status:
+              "error",
+
+            message:
+              "patient_id wajib diisi",
+          });
+      }
+
+      const organizationId =
+        String(
+          body.organization_id ||
+          process.env
+            .SATUSEHAT_ORGANIZATION_ID ||
+          DEFAULT_ORGANIZATION_ID
+        ).trim();
+
+      const practitionerId =
+        String(
+          body.practitioner_id ||
+          process.env
+            .SATUSEHAT_PRACTITIONER_ID ||
+          DEFAULT_PRACTITIONER_ID
+        ).trim();
+
+      const locationId =
+        String(
+          body.location_id ||
+          process.env
+            .SATUSEHAT_LOCATION_ID ||
+          DEFAULT_LOCATION_ID
+        ).trim();
+
+      const encounterNumber =
+        String(
+          body.encounter_number ||
+          `FIVECARE-${Date.now()}`
+        ).trim();
+
+      const startTime =
+        String(
+          body.start_time ||
+          utcNow()
+        ).trim();
+
+      const {
+        accessToken,
+      } =
+        await getToken();
+
+      const encounterPayload = {
+        resourceType:
+          "Encounter",
+
+        identifier: [
+          {
+            system:
+              `http://sys-ids.kemkes.go.id/encounter/${organizationId}`,
+
+            value:
+              encounterNumber,
+          },
+        ],
+
+        status:
+          "arrived",
+
+        statusHistory: [
+          {
+            status:
+              "arrived",
+
+            period: {
+              start:
+                startTime,
+            },
+          },
+        ],
+
+        class: {
+          system:
+            "http://terminology.hl7.org/CodeSystem/v3-ActCode",
+
+          code:
+            "AMB",
+
+          display:
+            "ambulatory",
+        },
+
+        classHistory: [
+          {
+            class: {
+              system:
+                "http://terminology.hl7.org/CodeSystem/v3-ActCode",
+
+              code:
+                "AMB",
+
+              display:
+                "ambulatory",
+            },
+
+            period: {
+              start:
+                startTime,
+            },
+          },
+        ],
+
+        subject: {
+          reference:
+            `Patient/${patientId}`,
+        },
+
+        participant: [
+          {
+            type: [
+              {
+                coding: [
+                  {
+                    system:
+                      "http://terminology.hl7.org/CodeSystem/v3-ParticipationType",
+
+                    code:
+                      "ATND",
+
+                    display:
+                      "attender",
+                  },
+                ],
+              },
+            ],
+
+            individual: {
+              reference:
+                `Practitioner/${practitionerId}`,
+            },
+          },
+        ],
+
+        period: {
+          start:
+            startTime,
+        },
+
+        location: [
+          {
+            location: {
+              reference:
+                `Location/${locationId}`,
+            },
+
+            period: {
+              start:
+                startTime,
+            },
+          },
+        ],
+
+        serviceProvider: {
+          reference:
+            `Organization/${organizationId}`,
+        },
+      };
+
+      const {
+        response,
+        data,
+      } =
+        await fhirPost(
+          "Encounter",
+          accessToken,
+          encounterPayload
+        );
+
+      if (
+        !response.ok
+      ) {
+        return res
+          .status(
+            response.status
+          )
+          .json({
+            status:
+              "error",
+
+            http_code:
+              response.status,
+
+            message:
+              "Gagal membuat Encounter di SATUSEHAT",
+
+            response:
+              data,
+
+            sent_identifier:
+              encounterNumber,
+          });
+      }
+
+      return res
+        .status(201)
+        .json({
+          status:
+            "success",
+
+          message:
+            "Encounter berhasil dibuat di SATUSEHAT",
+
+          patient_ihs:
+            patientId,
+
+          encounter_id:
+            data?.id ??
+            null,
+
+          encounter_number:
+            encounterNumber,
+
+          organization_id:
+            organizationId,
+
+          practitioner_id:
+            practitionerId,
+
+          location_id:
+            locationId,
+
+          start_time:
+            startTime,
+
+          encounter:
+            mapEncounter(
+              data
+            ),
+        });
+    }
+
+
+    // Semua action berikut adalah GET
+
+    if (
+      req.method !==
+      "GET"
+    ) {
+      return res
+        .status(405)
+        .json({
+          status:
+            "error",
+
+          message:
+            "Method tidak diizinkan",
+        });
+    }
+
 
     // ==================================================
     // TOKEN
     // ==================================================
 
-    if (action === "token") {
+    if (
+      action === "token"
+    ) {
 
       const {
         accessToken,
         tokenInfo,
-      } = await getToken();
+      } =
+        await getToken();
 
+      return res
+        .status(200)
+        .json({
+          status:
+            "success",
 
-      return res.status(200).json({
-        status: "success",
+          message:
+            "Koneksi SATUSEHAT berhasil",
 
-        message:
-          "Koneksi SATUSEHAT berhasil",
+          token_status:
+            tokenInfo.status ??
+            null,
 
-        http_code: 200,
+          token_type:
+            tokenInfo.token_type ??
+            null,
 
-        token_status:
-          tokenInfo.status ?? null,
+          expires_in:
+            tokenInfo.expires_in ??
+            null,
 
-        token_type:
-          tokenInfo.token_type ?? null,
-
-        expires_in:
-          tokenInfo.expires_in ?? null,
-
-        token_length:
-          accessToken.length,
-      });
+          token_length:
+            accessToken.length,
+        });
     }
 
 
@@ -667,72 +1123,80 @@ export default async function handler(
     // PATIENT
     // ==================================================
 
-    if (action === "patient") {
+    if (
+      action ===
+      "patient"
+    ) {
 
       const nik =
         String(
-          req.query.nik || ""
+          req.query.nik ||
+          ""
         ).trim();
 
-
-      if (!/^\d{16}$/.test(nik)) {
-
+      if (
+        !/^\d{16}$/.test(
+          nik
+        )
+      ) {
         return res
           .status(400)
           .json({
-            status: "error",
+            status:
+              "error",
 
             message:
-              "NIK harus 16 digit angka",
+              "NIK harus 16 digit",
           });
       }
 
-
       const {
         accessToken,
-      } = await getToken();
-
+      } =
+        await getToken();
 
       const identifier =
         `https://fhir.kemkes.go.id/id/nik|${nik}`;
 
-
       const {
         response,
         data,
-      } = await fhirGet(
-        "Patient?identifier=" +
-          encodeURIComponent(
-            identifier
-          ),
-        accessToken
-      );
+      } =
+        await fhirGet(
+          "Patient?identifier=" +
+            encodeURIComponent(
+              identifier
+            ),
+          accessToken
+        );
 
-
-      if (!response.ok) {
-
+      if (
+        !response.ok
+      ) {
         return res
-          .status(response.status)
+          .status(
+            response.status
+          )
           .json({
-            status: "error",
-
-            http_code:
-              response.status,
+            status:
+              "error",
 
             message:
               "Gagal mencari Patient",
 
-            response: data,
+            response:
+              data,
           });
       }
 
-
       const entries =
-        bundleEntries(data);
+        bundleEntries(
+          data
+        );
 
-
-      if (!entries.length) {
-
+      if (
+        !entries.length
+      ) {
         return res
           .status(404)
           .json({
@@ -740,28 +1204,29 @@ export default async function handler(
               "not_found",
 
             message:
-              "Patient tidak ditemukan di SATUSEHAT",
+              "Patient tidak ditemukan",
 
             nik,
           });
       }
 
-
       const patient =
-        entries[0].resource;
-
+        entries[0]
+          .resource;
 
       return res
         .status(200)
         .json({
-          status: "success",
+          status:
+            "success",
 
           message:
             "Patient ditemukan di SATUSEHAT",
 
           patient: {
             ihs:
-              patient.id ?? null,
+              patient.id ??
+              null,
 
             nik,
 
@@ -771,90 +1236,94 @@ export default async function handler(
               ),
 
             gender:
-              patient.gender ?? null,
+              patient.gender ??
+              null,
 
             birthDate:
               patient.birthDate ??
               null,
 
             active:
-              patient.active ?? null,
+              patient.active ??
+              null,
           },
         });
     }
 
 
     // ==================================================
-    // ENCOUNTER LIST
+    // ENCOUNTER
     // ==================================================
 
-    if (action === "encounter") {
+    if (
+      action ===
+      "encounter"
+    ) {
 
       const patientId =
         String(
-          req.query.patient_id || ""
+          req.query
+            .patient_id ||
+          ""
         ).trim();
 
-
       if (!patientId) {
-
         return res
           .status(400)
           .json({
-            status: "error",
+            status:
+              "error",
+
             message:
               "patient_id wajib diisi",
           });
       }
 
-
       const {
         accessToken,
-      } = await getToken();
-
+      } =
+        await getToken();
 
       const {
         response,
         data,
-      } = await fhirGet(
-        "Encounter?subject=" +
-          encodeURIComponent(
-            patientId
-          ),
-        accessToken
-      );
+      } =
+        await fhirGet(
+          "Encounter?subject=" +
+            encodeURIComponent(
+              patientId
+            ),
+          accessToken
+        );
 
-
-      if (!response.ok) {
-
+      if (
+        !response.ok
+      ) {
         return res
-          .status(response.status)
+          .status(
+            response.status
+          )
           .json({
-            status: "error",
-
-            http_code:
-              response.status,
+            status:
+              "error",
 
             message:
               "Gagal mengambil Encounter",
 
-            response: data,
+            response:
+              data,
           });
       }
 
-
-      const entries =
-        bundleEntries(data);
-
-
       const encounters =
-        entries.map(
-          (entry) =>
+        bundleEntries(
+          data
+        ).map(
+          entry =>
             mapEncounter(
               entry.resource
             )
         );
-
 
       return res
         .status(200)
@@ -864,16 +1333,8 @@ export default async function handler(
               ? "success"
               : "not_found",
 
-          message:
-            encounters.length
-              ? "Encounter berhasil ditemukan"
-              : "Belum ada Encounter untuk Patient ini",
-
           patient_ihs:
             patientId,
-
-          bundle_total:
-            data.total ?? null,
 
           total:
             encounters.length,
@@ -894,66 +1355,69 @@ export default async function handler(
 
       const encounterId =
         String(
-          req.query.encounter_id ||
-            ""
+          req.query
+            .encounter_id ||
+          ""
         ).trim();
 
-
       if (!encounterId) {
-
         return res
           .status(400)
           .json({
-            status: "error",
+            status:
+              "error",
 
             message:
               "encounter_id wajib diisi",
           });
       }
 
-
       const {
         accessToken,
-      } = await getToken();
-
+      } =
+        await getToken();
 
       const {
         response,
         data,
-      } = await fhirGet(
-        "Encounter/" +
-          encodeURIComponent(
-            encounterId
-          ),
-        accessToken
-      );
+      } =
+        await fhirGet(
+          "Encounter/" +
+            encodeURIComponent(
+              encounterId
+            ),
+          accessToken
+        );
 
-
-      if (!response.ok) {
-
+      if (
+        !response.ok
+      ) {
         return res
-          .status(response.status)
+          .status(
+            response.status
+          )
           .json({
-            status: "error",
-
-            http_code:
-              response.status,
+            status:
+              "error",
 
             message:
-              "Encounter tidak dapat diambil",
+              "Encounter tidak ditemukan",
 
-            response: data,
+            response:
+              data,
           });
       }
-
 
       return res
         .status(200)
         .json({
-          status: "success",
+          status:
+            "success",
 
           encounter:
-            mapEncounter(data),
+            mapEncounter(
+              data
+            ),
         });
     }
 
@@ -963,41 +1427,43 @@ export default async function handler(
     // ==================================================
 
     if (
-      action === "observation"
+      action ===
+      "observation"
     ) {
 
       const patientId =
         String(
-          req.query.patient_id || ""
+          req.query
+            .patient_id ||
+          ""
         ).trim();
 
       const encounterId =
         String(
-          req.query.encounter_id ||
-            ""
+          req.query
+            .encounter_id ||
+          ""
         ).trim();
-
 
       if (
         !patientId ||
         !encounterId
       ) {
-
         return res
           .status(400)
           .json({
-            status: "error",
+            status:
+              "error",
 
             message:
               "patient_id dan encounter_id wajib diisi",
           });
       }
 
-
       const {
         accessToken,
-      } = await getToken();
-
+      } =
+        await getToken();
 
       const path =
         "Observation" +
@@ -1010,42 +1476,43 @@ export default async function handler(
           encounterId
         );
 
-
       const {
         response,
         data,
-      } = await fhirGet(
-        path,
-        accessToken
-      );
+      } =
+        await fhirGet(
+          path,
+          accessToken
+        );
 
-
-      if (!response.ok) {
-
+      if (
+        !response.ok
+      ) {
         return res
-          .status(response.status)
+          .status(
+            response.status
+          )
           .json({
-            status: "error",
-
-            http_code:
-              response.status,
+            status:
+              "error",
 
             message:
               "Gagal mengambil Observation",
 
-            response: data,
+            response:
+              data,
           });
       }
 
-
       const observations =
-        bundleEntries(data).map(
-          (entry) =>
+        bundleEntries(
+          data
+        ).map(
+          entry =>
             mapObservation(
               entry.resource
             )
         );
-
 
       return res
         .status(200)
@@ -1055,19 +1522,11 @@ export default async function handler(
               ? "success"
               : "not_found",
 
-          message:
-            observations.length
-              ? "Observation berhasil ditemukan"
-              : "Tidak ada Observation pada Encounter ini",
-
           patient_ihs:
             patientId,
 
           encounter_id:
             encounterId,
-
-          bundle_total:
-            data.total ?? null,
 
           total:
             observations.length,
@@ -1078,45 +1537,47 @@ export default async function handler(
 
 
     // ==================================================
-    // CONDITION / DIAGNOSIS
+    // CONDITION
     // ==================================================
 
     if (
-      action === "condition"
+      action ===
+      "condition"
     ) {
 
       const patientId =
         String(
-          req.query.patient_id || ""
+          req.query
+            .patient_id ||
+          ""
         ).trim();
 
       const encounterId =
         String(
-          req.query.encounter_id ||
-            ""
+          req.query
+            .encounter_id ||
+          ""
         ).trim();
-
 
       if (
         !patientId ||
         !encounterId
       ) {
-
         return res
           .status(400)
           .json({
-            status: "error",
+            status:
+              "error",
 
             message:
               "patient_id dan encounter_id wajib diisi",
           });
       }
 
-
       const {
         accessToken,
-      } = await getToken();
-
+      } =
+        await getToken();
 
       const path =
         "Condition" +
@@ -1129,42 +1590,43 @@ export default async function handler(
           encounterId
         );
 
-
       const {
         response,
         data,
-      } = await fhirGet(
-        path,
-        accessToken
-      );
+      } =
+        await fhirGet(
+          path,
+          accessToken
+        );
 
-
-      if (!response.ok) {
-
+      if (
+        !response.ok
+      ) {
         return res
-          .status(response.status)
+          .status(
+            response.status
+          )
           .json({
-            status: "error",
-
-            http_code:
-              response.status,
+            status:
+              "error",
 
             message:
               "Gagal mengambil Condition",
 
-            response: data,
+            response:
+              data,
           });
       }
 
-
       const conditions =
-        bundleEntries(data).map(
-          (entry) =>
+        bundleEntries(
+          data
+        ).map(
+          entry =>
             mapCondition(
               entry.resource
             )
         );
-
 
       return res
         .status(200)
@@ -1174,19 +1636,11 @@ export default async function handler(
               ? "success"
               : "not_found",
 
-          message:
-            conditions.length
-              ? "Condition berhasil ditemukan"
-              : "Diagnosis belum ditemukan pada Encounter ini",
-
           patient_ihs:
             patientId,
 
           encounter_id:
             encounterId,
-
-          bundle_total:
-            data.total ?? null,
 
           total:
             conditions.length,
@@ -1201,41 +1655,43 @@ export default async function handler(
     // ==================================================
 
     if (
-      action === "procedure"
+      action ===
+      "procedure"
     ) {
 
       const patientId =
         String(
-          req.query.patient_id || ""
+          req.query
+            .patient_id ||
+          ""
         ).trim();
 
       const encounterId =
         String(
-          req.query.encounter_id ||
-            ""
+          req.query
+            .encounter_id ||
+          ""
         ).trim();
-
 
       if (
         !patientId ||
         !encounterId
       ) {
-
         return res
           .status(400)
           .json({
-            status: "error",
+            status:
+              "error",
 
             message:
               "patient_id dan encounter_id wajib diisi",
           });
       }
 
-
       const {
         accessToken,
-      } = await getToken();
-
+      } =
+        await getToken();
 
       const path =
         "Procedure" +
@@ -1248,42 +1704,43 @@ export default async function handler(
           encounterId
         );
 
-
       const {
         response,
         data,
-      } = await fhirGet(
-        path,
-        accessToken
-      );
+      } =
+        await fhirGet(
+          path,
+          accessToken
+        );
 
-
-      if (!response.ok) {
-
+      if (
+        !response.ok
+      ) {
         return res
-          .status(response.status)
+          .status(
+            response.status
+          )
           .json({
-            status: "error",
-
-            http_code:
-              response.status,
+            status:
+              "error",
 
             message:
               "Gagal mengambil Procedure",
 
-            response: data,
+            response:
+              data,
           });
       }
 
-
       const procedures =
-        bundleEntries(data).map(
-          (entry) =>
+        bundleEntries(
+          data
+        ).map(
+          entry =>
             mapProcedure(
               entry.resource
             )
         );
-
 
       return res
         .status(200)
@@ -1293,19 +1750,11 @@ export default async function handler(
               ? "success"
               : "not_found",
 
-          message:
-            procedures.length
-              ? "Procedure berhasil ditemukan"
-              : "Procedure belum ditemukan pada Encounter ini",
-
           patient_ihs:
             patientId,
 
           encounter_id:
             encounterId,
-
-          bundle_total:
-            data.total ?? null,
 
           total:
             procedures.length,
@@ -1317,50 +1766,46 @@ export default async function handler(
 
     // ==================================================
     // VISIT
-    //
-    // Mengambil:
-    // Encounter
-    // Observation
-    // Condition
-    // Procedure
-    //
-    // SEKALIGUS
     // ==================================================
 
-    if (action === "visit") {
+    if (
+      action ===
+      "visit"
+    ) {
 
       const patientId =
         String(
-          req.query.patient_id || ""
+          req.query
+            .patient_id ||
+          ""
         ).trim();
 
       const encounterId =
         String(
-          req.query.encounter_id ||
-            ""
+          req.query
+            .encounter_id ||
+          ""
         ).trim();
-
 
       if (
         !patientId ||
         !encounterId
       ) {
-
         return res
           .status(400)
           .json({
-            status: "error",
+            status:
+              "error",
 
             message:
               "patient_id dan encounter_id wajib diisi",
           });
       }
 
-
       const {
         accessToken,
-      } = await getToken();
-
+      } =
+        await getToken();
 
       const observationPath =
         "Observation" +
@@ -1373,7 +1818,6 @@ export default async function handler(
           encounterId
         );
 
-
       const conditionPath =
         "Condition" +
         "?subject=" +
@@ -1384,7 +1828,6 @@ export default async function handler(
         encodeURIComponent(
           encounterId
         );
-
 
       const procedurePath =
         "Procedure" +
@@ -1397,106 +1840,107 @@ export default async function handler(
           encounterId
         );
 
-
       const [
         encounterResult,
         observationResult,
         conditionResult,
         procedureResult,
-      ] = await Promise.all([
-        fhirGet(
-          "Encounter/" +
-            encodeURIComponent(
-              encounterId
-            ),
-          accessToken
-        ),
+      ] =
+        await Promise.all([
+          fhirGet(
+            "Encounter/" +
+              encodeURIComponent(
+                encounterId
+              ),
+            accessToken
+          ),
 
-        fhirGet(
-          observationPath,
-          accessToken
-        ),
+          fhirGet(
+            observationPath,
+            accessToken
+          ),
 
-        fhirGet(
-          conditionPath,
-          accessToken
-        ),
+          fhirGet(
+            conditionPath,
+            accessToken
+          ),
 
-        fhirGet(
-          procedurePath,
-          accessToken
-        ),
-      ]);
-
+          fhirGet(
+            procedurePath,
+            accessToken
+          ),
+        ]);
 
       if (
         !encounterResult
           .response.ok
       ) {
-
         return res
           .status(
             encounterResult
-              .response.status
+              .response
+              .status
           )
           .json({
-            status: "error",
+            status:
+              "error",
 
             message:
               "Encounter tidak dapat diambil",
 
             response:
-              encounterResult.data,
+              encounterResult
+                .data,
           });
       }
-
 
       const observations =
         observationResult
           .response.ok
           ? bundleEntries(
-              observationResult.data
+              observationResult
+                .data
             ).map(
-              (entry) =>
+              entry =>
                 mapObservation(
                   entry.resource
                 )
             )
           : [];
 
-
       const conditions =
         conditionResult
           .response.ok
           ? bundleEntries(
-              conditionResult.data
+              conditionResult
+                .data
             ).map(
-              (entry) =>
+              entry =>
                 mapCondition(
                   entry.resource
                 )
             )
           : [];
 
-
       const procedures =
         procedureResult
           .response.ok
           ? bundleEntries(
-              procedureResult.data
+              procedureResult
+                .data
             ).map(
-              (entry) =>
+              entry =>
                 mapProcedure(
                   entry.resource
                 )
             )
           : [];
 
-
       return res
         .status(200)
         .json({
-          status: "success",
+          status:
+            "success",
 
           message:
             "Data kunjungan berhasil diambil",
@@ -1509,7 +1953,8 @@ export default async function handler(
 
           encounter:
             mapEncounter(
-              encounterResult.data
+              encounterResult
+                .data
             ),
 
           observation_total:
@@ -1537,7 +1982,8 @@ export default async function handler(
     return res
       .status(400)
       .json({
-        status: "error",
+        status:
+          "error",
 
         message:
           `Action '${action}' tidak dikenal`,
@@ -1551,18 +1997,21 @@ export default async function handler(
           "condition",
           "procedure",
           "visit",
+          "create_encounter",
         ],
       });
 
-
   } catch (error) {
 
-    console.error(error);
+    console.error(
+      error
+    );
 
     return res
       .status(500)
       .json({
-        status: "error",
+        status:
+          "error",
 
         message:
           error.message ||
