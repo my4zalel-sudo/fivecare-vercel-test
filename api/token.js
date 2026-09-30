@@ -2193,6 +2193,7 @@ if (action === "create_observation") {
           "procedure",
           "visit",
           "create_encounter",
+          "create_observation",
         ],
       });
 
