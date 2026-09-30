@@ -200,6 +200,20 @@ async function fhirPost(
   );
 }
 
+async function fhirPut(
+  path,
+  accessToken,
+  body
+) {
+  return fhirRequest(
+    path,
+    accessToken,
+    {
+      method: "PUT",
+      body,
+    }
+  );
+}
 
 // ======================================================
 // HELPER
@@ -1639,6 +1653,296 @@ if (action === "create_procedure") {
   });
 }
 
+    // ==================================================
+// FINISH ENCOUNTER
+// ==================================================
+
+if (action === "finish_encounter") {
+
+  if (req.method !== "POST") {
+    return res.status(405).json({
+      status: "error",
+      message: "finish_encounter harus menggunakan POST",
+    });
+  }
+
+  const body = getJsonBody(req);
+
+  const encounterId =
+    String(body.encounter_id || "").trim();
+
+  const conditionId =
+    String(body.condition_id || "").trim();
+
+  const diagnosisDisplay =
+    String(
+      body.diagnosis_display ||
+      "Acute upper respiratory infection, unspecified"
+    ).trim();
+
+  const inProgressTime =
+    String(body.in_progress_time || "").trim();
+
+  const finishTime =
+    String(
+      body.finish_time ||
+      utcNow()
+    ).trim();
+
+  if (!encounterId || !conditionId) {
+    return res.status(400).json({
+      status: "error",
+      message: "encounter_id dan condition_id wajib diisi",
+    });
+  }
+
+  const { accessToken } =
+    await getToken();
+
+  // Ambil Encounter yang sudah ada
+  const {
+    response: getResponse,
+    data: encounter,
+  } = await fhirGet(
+    "Encounter/" +
+      encodeURIComponent(encounterId),
+    accessToken
+  );
+
+  if (!getResponse.ok) {
+    return res.status(getResponse.status).json({
+      status: "error",
+      message: "Gagal mengambil Encounter sebelum update",
+      response: encounter,
+    });
+  }
+
+  const encounterStart =
+    encounter.period?.start ||
+    finishTime;
+
+  const progressTime =
+    inProgressTime ||
+    encounterStart;
+
+  // ------------------------------
+  // STATUS
+  // ------------------------------
+
+  encounter.status =
+    "finished";
+
+  // ------------------------------
+  // PERIOD ENCOUNTER
+  // ------------------------------
+
+  encounter.period = {
+    ...(encounter.period || {}),
+    start:
+      encounter.period?.start ||
+      encounterStart,
+    end:
+      finishTime,
+  };
+
+  // ------------------------------
+  // STATUS HISTORY
+  // arrived -> in-progress -> finished
+  // ------------------------------
+
+  const currentHistory =
+    Array.isArray(encounter.statusHistory)
+      ? encounter.statusHistory
+      : [];
+
+  const arrivedExisting =
+    currentHistory.find(
+      item =>
+        item.status === "arrived"
+    );
+
+  const arrivedStart =
+    arrivedExisting?.period?.start ||
+    encounterStart;
+
+  const otherHistory =
+    currentHistory.filter(
+      item =>
+        ![
+          "arrived",
+          "in-progress",
+          "finished",
+        ].includes(item.status)
+    );
+
+  encounter.statusHistory = [
+    {
+      status: "arrived",
+
+      period: {
+        start:
+          arrivedStart,
+
+        end:
+          progressTime,
+      },
+    },
+
+    {
+      status: "in-progress",
+
+      period: {
+        start:
+          progressTime,
+
+        end:
+          finishTime,
+      },
+    },
+
+    {
+      status: "finished",
+
+      period: {
+        start:
+          finishTime,
+
+        end:
+          finishTime,
+      },
+    },
+
+    ...otherHistory,
+  ];
+
+  // ------------------------------
+  // CLASS HISTORY
+  // ------------------------------
+
+  if (
+    Array.isArray(encounter.classHistory)
+  ) {
+    encounter.classHistory =
+      encounter.classHistory.map(
+        item => ({
+          ...item,
+
+          period: {
+            ...(item.period || {}),
+
+            start:
+              item.period?.start ||
+              encounterStart,
+
+            end:
+              item.period?.end ||
+              finishTime,
+          },
+        })
+      );
+  }
+
+  // ------------------------------
+  // DIAGNOSIS
+  // ------------------------------
+
+  const conditionReference =
+    `Condition/${conditionId}`;
+
+  const existingDiagnosis =
+    Array.isArray(encounter.diagnosis)
+      ? encounter.diagnosis
+      : [];
+
+  const diagnosisAlreadyExists =
+    existingDiagnosis.some(
+      item =>
+        item.condition?.reference ===
+        conditionReference
+    );
+
+  if (!diagnosisAlreadyExists) {
+    existingDiagnosis.push({
+      condition: {
+        reference:
+          conditionReference,
+
+        display:
+          diagnosisDisplay,
+      },
+
+      use: {
+        coding: [
+          {
+            system:
+              "http://terminology.hl7.org/CodeSystem/diagnosis-role",
+
+            code:
+              "DD",
+
+            display:
+              "Discharge diagnosis",
+          },
+        ],
+      },
+
+      rank: 1,
+    });
+  }
+
+  encounter.diagnosis =
+    existingDiagnosis;
+
+  // ------------------------------
+  // PUT KE SATUSEHAT
+  // ------------------------------
+
+  const {
+    response,
+    data,
+  } = await fhirPut(
+    "Encounter/" +
+      encodeURIComponent(encounterId),
+
+    accessToken,
+    encounter
+  );
+
+  if (!response.ok) {
+    return res.status(response.status).json({
+      status: "error",
+
+      http_code:
+        response.status,
+
+      message:
+        "Gagal menyelesaikan Encounter di SATUSEHAT",
+
+      response:
+        data,
+    });
+  }
+
+  return res.status(200).json({
+    status: "success",
+
+    message:
+      "Encounter berhasil diselesaikan",
+
+    encounter_id:
+      encounterId,
+
+    condition_id:
+      conditionId,
+
+    finish_time:
+      finishTime,
+
+    encounter:
+      mapEncounter(data),
+  });
+}
+    
     // Semua action berikut adalah GET
 
     if (
@@ -2580,6 +2884,7 @@ if (action === "create_procedure") {
           "create_observation",
           "create_condition",
           "create_procedure",
+          "finish_encounter",
         ],
       });
 
