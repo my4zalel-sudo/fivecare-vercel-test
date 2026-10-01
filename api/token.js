@@ -305,6 +305,118 @@ function utcNow() {
 }
 
 
+
+// ======================================================
+// OPERATIONOUTCOME / PRIVACY HELPER
+// ======================================================
+
+function bundleResources(
+  data,
+  resourceType
+) {
+  return bundleEntries(data)
+    .map(entry => entry?.resource)
+    .filter(
+      resource =>
+        resource?.resourceType === resourceType
+    );
+}
+
+function collectOperationOutcomes(
+  data
+) {
+  const outcomes = [];
+
+  if (
+    data?.resourceType ===
+    "OperationOutcome"
+  ) {
+    outcomes.push(data);
+  }
+
+  if (
+    data?.resourceType === "Bundle" &&
+    Array.isArray(data.entry)
+  ) {
+    data.entry.forEach(entry => {
+      if (
+        entry?.resource?.resourceType ===
+        "OperationOutcome"
+      ) {
+        outcomes.push(entry.resource);
+      }
+    });
+  }
+
+  return outcomes;
+}
+
+function getPrivacyRestrictionInfo(
+  data
+) {
+  const outcomes =
+    collectOperationOutcomes(data);
+
+  const issues = outcomes.flatMap(
+    outcome =>
+      Array.isArray(outcome?.issue)
+        ? outcome.issue
+        : []
+  );
+
+  const privacyIssues = issues.filter(
+    issue => {
+      const code =
+        String(issue?.code || "")
+          .toLowerCase();
+
+      const text =
+        String(
+          issue?.details?.text || ""
+        ).toLowerCase();
+
+      const diagnostics =
+        String(
+          issue?.diagnostics || ""
+        ).toLowerCase();
+
+      return (
+        code === "suppressed" ||
+        text.includes("consent") ||
+        text.includes("privacy") ||
+        diagnostics.includes("consent") ||
+        diagnostics.includes("privacy")
+      );
+    }
+  );
+
+  if (!privacyIssues.length) {
+    return null;
+  }
+
+  return {
+    restricted: true,
+
+    messages:
+      privacyIssues
+        .map(
+          issue =>
+            issue?.details?.text ||
+            null
+        )
+        .filter(Boolean),
+
+    diagnostics:
+      privacyIssues
+        .map(
+          issue =>
+            issue?.diagnostics ||
+            null
+        )
+        .filter(Boolean),
+  };
+}
+
 // ======================================================
 // MAP ENCOUNTER
 // ======================================================
@@ -2199,12 +2311,13 @@ if (action === "finish_encounter") {
       }
 
       const encounters =
-        bundleEntries(
-          data
+        bundleResources(
+          data,
+          "Encounter"
         ).map(
-          entry =>
+          resource =>
             mapEncounter(
-              entry.resource
+              resource
             )
         );
 
@@ -2288,6 +2401,32 @@ if (action === "finish_encounter") {
 
             response:
               data,
+          });
+      }
+
+      const privacyInfo =
+        getPrivacyRestrictionInfo(
+          data
+        );
+
+      if (privacyInfo) {
+        return res
+          .status(200)
+          .json({
+            status:
+              "privacy_restricted",
+
+            message:
+              "SATUSEHAT tidak mengembalikan isi Encounter karena aturan consent/privacy.",
+
+            encounter_id:
+              encounterId,
+
+            privacy_restricted:
+              true,
+
+            privacy_details:
+              privacyInfo,
           });
       }
 
@@ -2388,12 +2527,13 @@ if (action === "finish_encounter") {
       }
 
       const observations =
-        bundleEntries(
-          data
+        bundleResources(
+          data,
+          "Observation"
         ).map(
-          entry =>
+          resource =>
             mapObservation(
-              entry.resource
+              resource
             )
         );
 
@@ -2502,12 +2642,13 @@ if (action === "finish_encounter") {
       }
 
       const conditions =
-        bundleEntries(
-          data
+        bundleResources(
+          data,
+          "Condition"
         ).map(
-          entry =>
+          resource =>
             mapCondition(
-              entry.resource
+              resource
             )
         );
 
@@ -2616,12 +2757,13 @@ if (action === "finish_encounter") {
       }
 
       const procedures =
-        bundleEntries(
-          data
+        bundleResources(
+          data,
+          "Procedure"
         ).map(
-          entry =>
+          resource =>
             mapProcedure(
-              entry.resource
+              resource
             )
         );
 
@@ -2777,16 +2919,102 @@ if (action === "finish_encounter") {
           });
       }
 
+      // SATUSEHAT dapat mengembalikan HTTP 200 tetapi resource-nya
+      // OperationOutcome dengan kode suppressed karena consent/privacy.
+      const privacyDetails = [
+        {
+          source: "Encounter",
+          info:
+            getPrivacyRestrictionInfo(
+              encounterResult.data
+            ),
+        },
+        {
+          source: "Observation",
+          info:
+            getPrivacyRestrictionInfo(
+              observationResult.data
+            ),
+        },
+        {
+          source: "Condition",
+          info:
+            getPrivacyRestrictionInfo(
+              conditionResult.data
+            ),
+        },
+        {
+          source: "Procedure",
+          info:
+            getPrivacyRestrictionInfo(
+              procedureResult.data
+            ),
+        },
+      ].filter(item => item.info);
+
+      if (privacyDetails.length) {
+        return res
+          .status(200)
+          .json({
+            status:
+              "privacy_restricted",
+
+            message:
+              "SATUSEHAT tidak mengembalikan isi kunjungan karena aturan consent/privacy antar organisasi.",
+
+            patient_ihs:
+              patientId,
+
+            encounter_id:
+              encounterId,
+
+            privacy_restricted:
+              true,
+
+            privacy_details:
+              privacyDetails.map(
+                item => ({
+                  source:
+                    item.source,
+
+                  messages:
+                    item.info.messages,
+
+                  diagnostics:
+                    item.info.diagnostics,
+                })
+              ),
+
+            encounter:
+              null,
+
+            observation_total:
+              0,
+            observations:
+              [],
+
+            condition_total:
+              0,
+            conditions:
+              [],
+
+            procedure_total:
+              0,
+            procedures:
+              [],
+          });
+      }
+
       const observations =
         observationResult
           .response.ok
-          ? bundleEntries(
-              observationResult
-                .data
+          ? bundleResources(
+              observationResult.data,
+              "Observation"
             ).map(
-              entry =>
+              resource =>
                 mapObservation(
-                  entry.resource
+                  resource
                 )
             )
           : [];
@@ -2794,13 +3022,13 @@ if (action === "finish_encounter") {
       const conditions =
         conditionResult
           .response.ok
-          ? bundleEntries(
-              conditionResult
-                .data
+          ? bundleResources(
+              conditionResult.data,
+              "Condition"
             ).map(
-              entry =>
+              resource =>
                 mapCondition(
-                  entry.resource
+                  resource
                 )
             )
           : [];
@@ -2808,13 +3036,13 @@ if (action === "finish_encounter") {
       const procedures =
         procedureResult
           .response.ok
-          ? bundleEntries(
-              procedureResult
-                .data
+          ? bundleResources(
+              procedureResult.data,
+              "Procedure"
             ).map(
-              entry =>
+              resource =>
                 mapProcedure(
-                  entry.resource
+                  resource
                 )
             )
           : [];
@@ -2835,10 +3063,11 @@ if (action === "finish_encounter") {
             encounterId,
 
           encounter:
-            mapEncounter(
-              encounterResult
-                .data
-            ),
+            encounterResult.data?.resourceType === "Encounter"
+              ? mapEncounter(
+                  encounterResult.data
+                )
+              : null,
 
           observation_total:
             observations.length,
