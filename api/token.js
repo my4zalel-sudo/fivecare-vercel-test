@@ -2857,6 +2857,122 @@ if (action === "finish_encounter") {
         });
     }
 
+    // ==================================================
+// DEBUG VISIT RAW
+// ==================================================
+
+if (action === "debug_visit_raw") {
+
+  const patientId =
+    String(req.query.patient_id || "").trim();
+
+  const encounterId =
+    String(req.query.encounter_id || "").trim();
+
+  if (!patientId || !encounterId) {
+    return res.status(400).json({
+      status: "error",
+      message: "patient_id dan encounter_id wajib diisi",
+    });
+  }
+
+  const { accessToken } =
+    await getToken();
+
+  const observationPath =
+    "Observation?subject=" +
+    encodeURIComponent(patientId) +
+    "&encounter=" +
+    encodeURIComponent(encounterId);
+
+  const conditionPath =
+    "Condition?subject=" +
+    encodeURIComponent(patientId) +
+    "&encounter=" +
+    encodeURIComponent(encounterId);
+
+  const procedurePath =
+    "Procedure?subject=" +
+    encodeURIComponent(patientId) +
+    "&encounter=" +
+    encodeURIComponent(encounterId);
+
+  const [
+    encounterResult,
+    observationResult,
+    conditionResult,
+    procedureResult,
+  ] = await Promise.all([
+
+    fhirGet(
+      "Encounter/" +
+      encodeURIComponent(encounterId),
+      accessToken
+    ),
+
+    fhirGet(
+      observationPath,
+      accessToken
+    ),
+
+    fhirGet(
+      conditionPath,
+      accessToken
+    ),
+
+    fhirGet(
+      procedurePath,
+      accessToken
+    ),
+  ]);
+
+  return res.status(200).json({
+
+    encounter: {
+      http_status:
+        encounterResult.response.status,
+
+      resource_type:
+        encounterResult.data?.resourceType ?? null,
+
+      raw:
+        encounterResult.data,
+    },
+
+    observation: {
+      http_status:
+        observationResult.response.status,
+
+      resource_type:
+        observationResult.data?.resourceType ?? null,
+
+      raw:
+        observationResult.data,
+    },
+
+    condition: {
+      http_status:
+        conditionResult.response.status,
+
+      resource_type:
+        conditionResult.data?.resourceType ?? null,
+
+      raw:
+        conditionResult.data,
+    },
+
+    procedure: {
+      http_status:
+        procedureResult.response.status,
+
+      resource_type:
+        procedureResult.data?.resourceType ?? null,
+
+      raw:
+        procedureResult.data,
+    },
+  });
+}
 
     // ==================================================
     // ACTION TIDAK DIKENAL
@@ -2885,6 +3001,7 @@ if (action === "finish_encounter") {
           "create_condition",
           "create_procedure",
           "finish_encounter",
+          "debug_visit_raw",
         ],
       });
 
